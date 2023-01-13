@@ -1,0 +1,76 @@
+---
+title: "Task 5"
+output: html_document
+date: "2023-01-12"
+---
+
+```{r}
+library()
+```
+```{r}
+library(seqinr)
+```
+```{r}
+search()
+```
+```{r}
+?vignette
+```
+```{r}
+?install.packages
+install.packages("seqinr", repos="https://cran.rstudio.com/")
+```
+```{r}
+library(help="seqinr") 
+```
+```{r}
+library(seqinr)
+ls("package:seqinr")
+```
+```{r}
+?seqinr::a 
+```
+```{r}
+seqinr::a("Tyr")
+```
+```{r}
+seqinr::words(3, c("A", "G", "C", "U"))
+```
+```{r}
+?data
+```
+```{r}
+data(package="seqinr")  
+```
+```{r}
+data(aaindex, package="seqinr") 
+```
+```{r}
+?aaindex
+```
+```{r}
+aaindex$FASG890101
+```
+```{r}
+aaindex$PONJ960101 
+```
+```{r}
+plot(aaindex$FASG890101$I,
+     aaindex$PONJ960101$I,
+     xlab="hydrophobicity", ylab="volume", type="n")
+text(aaindex$FASG890101$I,
+     aaindex$PONJ960101$I,
+     labels=a(names(aaindex$FASG890101$I)))
+```
+```{r}
+seqinr::choosebank("swissprot")
+mySeq <- seqinr::query("mySeq", "N=MBP1_YEAST")
+mbp1 <- seqinr::getSequence(mySeq)
+seqinr::closebank()
+x <- seqinr::AAstat(mbp1[[1]])
+barplot(sort(x$Compo), cex.names = 0.6)
+```
+```{r}
+if (! requireNamespace("seqinr", quietly=TRUE)) {
+  install.packages("seqinr")
+}
