@@ -1,0 +1,60 @@
+---
+title: "Homework assignment(Journal entry) - Docker"
+---
+
+-   DESeq2, pheatmap installed
+
+# Create a 5 by 10 matrix of random integers
+
+```{r}
+set.seed(1)
+m <- matrix(sample.int(5 * 10), nrow=5, ncol=10)
+m
+```
+
+# Define column names as cond1, cond2, cond3, cond4, cond5, ctrl1, ctrl2, ctrl3, ctrl4, ctrl5
+
+```{r}
+cond_col_names <- c("cond1", "cond2", "cond3", "cond4", "cond5")
+ctrl_col_names <- c("ctrl1", "ctrl2", "ctrl3", "ctrl4", "ctrl5")
+colnames(m) <- c(cond_col_names, ctrl_col_names)
+m
+```
+
+# Define row names as gene1, gene2, gene3 ...
+
+```{r}
+gene_row_names <- c("gene1", "gene2", "gene3", "gene4", "gene5")
+rownames(m) <- gene_row_names
+m
+```
+
+# Compute the fold change for each gene.
+
+```{r}
+condition <- data.frame(genes=gene_row_names,
+                        ctrl_cond=factor(c(rep("ctrl", 5), rep("cond", 5))))
+# Create a data frame of genes' names and group names on each column.
+
+dds <- DESeq2::DESeqDataSetFromMatrix(countData=m,
+                                      colData=DataFrame(condition),
+                                      design= ~ ctrl_cond)
+# Create a DESeq dataset.
+
+dds$ctrl_cond <- factor(dds$ctrl_cond, levels = c("cond","ctrl"))
+# Modify ctr_cond of dds into levels of cond and ctrl.
+
+dds <- DESeq2::DESeq(dds)
+# Run DESeq on DESeq dataset.
+
+dds <- DESeq2::results(dds, contrast=c("ctrl_cond","cond","ctrl"))
+# Load results of DESeq2
+
+dds
+```
+
+# Result
+
+```{r}
+data.frame(genes=gene_row_names, fold_change_result=dds$log2FoldChange)
+```
