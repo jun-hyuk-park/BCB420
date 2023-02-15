@@ -1,16 +1,21 @@
 ---
+author: Jun Hyuk Park
 title: "Assignment 1"
 output:
   html_document:
+    toc: true
+    toc_depth: 1
     df_print: paged
   html_notebook: default
   pdf_document: default
 ---
-# Data analysis
 ## Data set series: GSE198919
-## Dataset title: Transcriptome and methylation analysis of JMML patients compare to healthy prenatal and postnatal samples.
+## Dataset title: Transcriptome and methylation analysis of Juvenile Myelomonocytic patients compare to healthy prenatal and postnatal samples.
 
-JMML (Juvenile myelomonocytic leukemia) is a leukemia that only develops in young children and is thought to have a prenatal initiation (Cavé H et al). This study is about RNAseq expression and DNA methylation experiment between JMML patients, healthy prenatal and postnatal samples (Cavé H et al). The researchers studied the transcriptome of hematopoietic stem and progenitor cells(HSPC) sorted from sporadic JMML patients, healthy prenatal samples and from healthy age matched donors (Cavé H et al). Bulk transcriptome of sorted HSPC reveals that some JMML samples cluster with prenatal samples whereas other from a distinct cluster apart from any healthy samples (Cavé H et al). Methylation profile on bulk mononucleated cell on theses JMML patients, 2 healthy postnatal and 2 healthy prenatal samples is also investigated (Cavé H et al). The results show a global hypermethylation in JMML samples compared to healthy samples and a specific JMML group with a hypermethylated profile compared to all JMML samples (Cavé H et al).
+# Select an Expression Data Set
+Juvenile myelomonocytic leukemia(JMML) is a leukemia that only develops in young children and is thought to have a prenatal initiation (Cavé H et al). This study is about RNAseq expression and DNA methylation experiment between JMML patients, healthy prenatal and postnatal samples (Cavé H et al). The researchers studied the transcriptome of hematopoietic stem and progenitor cells(HSPC) sorted from sporadic JMML patients, healthy prenatal samples and from healthy age matched donors (Cavé H et al). Bulk transcriptome of sorted HSPC reveals that some JMML samples cluster with prenatal samples whereas other from a distinct cluster apart from any healthy samples (Cavé H et al). Methylation profile on bulk mononucleated cell on theses JMML patients, 2 healthy postnatal and 2 healthy prenatal samples is also investigated (Cavé H et al). The results show a global hypermethylation in JMML samples compared to healthy samples and a specific JMML group with a hypermethylated profile compared to all JMML samples (Cavé H et al).
+
+Check if there are all required packages. Including the packages that were included in BCB420 base docker image, knitr, edgeR, BiocManager, GEOmetadb and biomaRt are needed.
 
 ```{r Download required packages}
 if(!requireNamespace("knitr", quietly=TRUE)) {
@@ -29,21 +34,26 @@ if(!requireNamespace("biomaRt", quietly=TRUE)) {
   BiocManager::install("biomaRt")
 }
 ```
-```{r library packages needed}
-library(knitr)
-library(GEOmetadb)
-library(biomaRt)
-library(edgeR)
-```
+
+# Clean the data and map to HUGO symbols
+
+I used GSE198919 series. Downlaod using GEOquery package.
+
 ```{r Get dataset and meta file, message=FALSE, warning=TRUE}
 dataset_name <- "GSE198919"
-gse <- getGEO(dataset_name, GSEMatrix = FALSE)
-kable(data.frame(head(Meta(gse))), format="html", caption = paste0("Metadata of ", dataset_name))
+gse <- GEOquery::getGEO(dataset_name, GSEMatrix = FALSE)
+knitr::kable(data.frame(head(GEOquery::Meta(gse))), format="html", caption = paste0("Metadata of ", dataset_name))
 ```
+
+Download supplementary files using GEOquery.
+
 ```{r Download supplementary files, message=FALSE, warning=FALSE}
-sfiles <- getGEOSuppFiles(dataset_name)
-(fnames <- rownames(sfiles))
+sfiles <- GEOquery::getGEOSuppFiles(dataset_name)
+fnames <- rownames(sfiles)
 ```
+
+Raw RNA counts were saved in compressed file. Uncompress the file.
+
 ```{r Unzip RNA raw counts file and read the file}
 if(!file.exists(sub(".gz", "", fnames[4]))) {
   gunzip(fnames[4], remove=FALSE)
@@ -51,26 +61,40 @@ if(!file.exists(sub(".gz", "", fnames[4]))) {
 
 raw_counts <- read.delim(sub(".gz", "", fnames[4]), header=TRUE, check.names=FALSE)
 ```
-```{r Show some gene names}
+
+In this dataset, 60497 genes and 119 samples were covered. Most of gene names were in HUGO symbols.
+
+```{r Number of genes and gene names}
+nrow(raw_counts)
+ncol(raw_counts)
 raw_counts$Gene[10:20]
 raw_counts$Gene[60:70]
 ```
+
+We use biomaRt to map the gene names in other naming system to HUGO symbol.
+
 ```{r Get the dataset of ensembl}
-ensembl <- useMart("ensembl")
-ensembl <- useDataset("hsapiens_gene_ensembl", mart=ensembl)
+ensembl <- biomaRt::useMart("ensembl")
+ensembl <- biomaRt::useDataset("hsapiens_gene_ensembl", mart=ensembl)
 ```
-In the dataset, most of gene names were in HUGO symbol.
+
+In the dataset, most of gene names were in HUGO symbol. we only filter out HUGO symbols.
+
 ```{r Filter the gene names with HUGO symbol}
-raw_counts_gene_conversion <- getBM(attributes=c("hgnc_symbol", "hgnc_symbol"),
+raw_counts_gene_conversion <- biomaRt::getBM(attributes=c("hgnc_symbol", "hgnc_symbol"),
       filters=c("hgnc_symbol"),
       values=raw_counts$Gene,
       mart=ensembl)
 ```
-However, there were some gene names were in HUGO symbols.
+
+However, there were 26043 gene names were not in HUGO symbols.
+
 ```{r Calculate how many genes were not in HUGO symbols}
 nrow(raw_counts) - nrow(raw_counts_gene_conversion)
 ```
+
 Convert the raw_counts data frame into matrix and merge with mapped gene names. Filter the rows with a valid HUGO symbol.
+
 ```{r Merge}
 raw_counts_matrix <- as.matrix(raw_counts)
 rownames(raw_counts_matrix) <- raw_counts$Gene
@@ -78,7 +102,9 @@ counts_annot <- merge(raw_counts_gene_conversion, raw_counts_matrix, by.x=1, by.
 counts_annot <- counts_annot[which(!is.na(counts_annot$hgnc_symbol.1)),]
 head(counts_annot)
 ```
-The researches named the samples with JMML as LMMJ(leucémie myélomonocytaire juvénile). Other samples are healthy.
+
+The researchers named the samples with JMML as LMMJ(leucémie myélomonocytaire juvénile). Other samples are healthy.
+
 ```{r Cell type}
 cell_type <- c()
 for (i in colnames(counts_annot)[4:ncol(counts_annot)]) {
@@ -89,28 +115,49 @@ for (i in colnames(counts_annot)[4:ncol(counts_annot)]) {
   }
 }
 ```
+
+
+
 ```{r convert into matrix}
 counts_annot_matrix <- as.matrix(sapply(counts_annot[,4:ncol(counts_annot)], as.numeric))
 
 rownames(counts_annot_matrix) <- counts_annot$hgnc_symbol
 ```
 ```{r Calculate cpm}
-cpms <- cpm(counts_annot_matrix[,4:ncol(counts_annot_matrix)])
+cpms <- edgeR::cpm(counts_annot_matrix[,4:ncol(counts_annot_matrix)])
 keep <- rowSums(cpms>1) >= 10
 counts_annot_filtered_matrix <- counts_annot_matrix[keep,]
-dim(counts_annot_filtered_matrix)
+knitr::kable(counts_annot_filtered_matrix[1:5, 1:5], format="html")
 ```
+
+# Apply Normalization
+
+```{r Apply Normalization}
+d <- edgeR::DGEList(counts=counts_annot_filtered_matrix, group=cell_type)
+d <- edgeR::calcNormFactors(d)
+normalized_counts_annot_filtered_matrix <- edgeR::cpm(d)
+knitr::kable(normalized_counts_annot_filtered_matrix[1:5, 1:5])
+```
+
 ```{r plot CPM data, warning=FALSE}
-cpm_log_data <- log2(cpm(counts_annot_filtered_matrix))
+cpm_log_data <- log2(edgeR::cpm(counts_annot_filtered_matrix))
 boxplot(cpm_log_data, xlab="Samples", ylab="log2 CPM",
         las=2, cex=0.5, cex.lab=0.5,
         cex.axis=0.5, main="JMML RNASeq Samples")
 abline(h=median(apply(cpm_log_data, 2, median)),
-       col="green", lwd=0.6,lty="dashed")
+       col="red", lwd=0.6,lty="dashed")
 ```
-```{r plot density graph of RNAseq}
-# Outlier: LMMJ-10-CMP
-density_data <- apply(log2(cpm(counts_annot_filtered_matrix[,1:ncol(counts_annot_filtered_matrix)])), 2, density)
+```{r plot normalized CPM data, warning=FALSE}
+normalized_cpm_log_data <- log2(edgeR::cpm(normalized_counts_annot_filtered_matrix))
+boxplot(normalized_cpm_log_data, xlab="Samples", ylab="log2 CPM",
+        las=2, cex=0.5, cex.lab=0.5,
+        cex.axis=0.5, main="Normalized JMML RNASeq Samples")
+abline(h=median(apply(normalized_cpm_log_data, 2, median)),
+       col="red", lwd=0.6,lty="dashed")
+```
+
+```{r plot density graph of RNAseq, fig.height = 8, fig.width = 10, fig.align = "center"}
+density_data <- apply(log2(edgeR::cpm(counts_annot_filtered_matrix[,1:ncol(counts_annot_filtered_matrix)])), 2, density)
 xlim <- 0
 ylim <- 0
 for (i in 1:length(density_data)) {
@@ -122,27 +169,129 @@ cols <- rainbow(length(density_data))
 ltys <- rep(1, length(density_data))
 
 plot(density_data[[1]], xlim=xlim, ylim=ylim, type="n",
-     ylab="Smoothing density of log2-CPM", main="", cex.lab=TRUE)
+     ylab="Density of CPM in log2", main="CPM density graph", cex.lab=TRUE)
 for (i in 1:length(density_data)) {
   lines(density_data[[i]], col=cols[i])
 }
 
 legend("topright", colnames(counts_annot_filtered_matrix), 
-       col=cols, lty=ltys, ncol=3, cex=0.3,
+       col=cols, lty=ltys, ncol=3, cex=0.5,
        border="blue", text.col="green4",
        merge=TRUE, bg="gray90")
-
 ```
-As we can see in the plot, LMMJ-10-CMP stands out from the dataset significantly. Therefore, LMMJ-10-CMP is an outlier here.
+
+As we can see in the plot, LMMJ-10-CMP stands out from the dataset significantly. Therefore, LMMJ-10-CMP is an outlier here. Discard this sample from plot.
+
+```{r Plot without outlier, fig.height = 8, fig.width = 10, fig.align = "center"}
+outlier_col <- which(colnames(counts_annot_filtered_matrix) == "LMMJ-10-CMP") * -1
+outlier_discarded_counts_annot_filtered_matrix <- counts_annot_filtered_matrix[, outlier_col]
+
+density_data2 <- apply(log2(edgeR::cpm(
+  outlier_discarded_counts_annot_filtered_matrix[,1:ncol(outlier_discarded_counts_annot_filtered_matrix)])), 2, density)
+xlim <- 0
+ylim <- 0
+for (i in 1:length(density_data2)) {
+  xlim <- range(c(xlim, density_data2[[i]]$x))
+  ylim <- range(c(ylim, density_data2[[i]]$y))
+}
+
+cols2 <- rainbow(length(density_data2))
+ltys2 <- rep(1, length(density_data2))
+
+plot(density_data2[[1]], xlim=xlim, ylim=ylim, type="n",
+     ylab="Density of CPM in log2", main="CPM density graph without outlier", cex.lab=TRUE)
+for (i in 1:length(density_data2)) {
+  lines(density_data2[[i]], col=cols2[i])
+}
+
+legend("topright", colnames(outlier_discarded_counts_annot_filtered_matrix), 
+       col=cols2, lty=ltys2, ncol=3, cex=0.5,
+       border="blue", text.col="green4",
+       merge=TRUE, bg="gray90")
+```
+```{r Normalized plot without outlier, fig.height = 8, fig.width = 10, fig.align = "center"}
+normalized_outlier_discarded_counts_annot_matrix <- normalized_counts_annot_filtered_matrix[, outlier_col]
+normalized_density_data <- apply(log2(edgeR::cpm(
+  normalized_outlier_discarded_counts_annot_matrix[,1:ncol(normalized_outlier_discarded_counts_annot_matrix)])), 2, density)
+xlim <- 0
+ylim <- 0
+for (i in 1:length(density_data2)) {
+  xlim <- range(c(xlim, normalized_density_data[[i]]$x))
+  ylim <- range(c(ylim, normalized_density_data[[i]]$y))
+}
+
+cols3 <- rainbow(length(normalized_density_data))
+ltys3 <- rep(1, length(normalized_density_data))
+
+plot(normalized_density_data[[1]], xlim=xlim, ylim=ylim, type="n",
+     ylab="Density of CPM in log2", main="Normalized CPM density graph without outlier", cex.lab=TRUE)
+for (i in 1:length(normalized_density_data)) {
+  lines(normalized_density_data[[i]], col=cols3[i])
+}
+
+legend("topright", colnames(normalized_outlier_discarded_counts_annot_matrix), 
+       col=cols3, lty=ltys3, ncol=3, cex=0.5,
+       border="blue", text.col="green4",
+       merge=TRUE, bg="gray90")
+```
 
 
-```{r Calculate normalize factors}
-d <- DGEList(counts=counts_annot_filtered_matrix, group=cell_type)
-d <- calcNormFactors(d)
-plotMDS(d, labels=colnames(counts_annot_filtered_matrix),
-        col=c("red", "blue")[factor(cell_type)], cex=0.7)
+
+```{r Plot unnormalized matrix, fig.height = 8, fig.width = 10, fig.align = "center"}
+limma::plotMDS(outlier_discarded_counts_annot_filtered_matrix,
+               labels=colnames(outlier_discarded_counts_annot_filtered_matrix),
+        col=c("red", "blue")[factor(cell_type[outlier_col])], cex=0.7)
+``` 
+```{r Plot normalized matrix, fig.height = 8, fig.width = 10, fig.align = "center"}
+limma::plotMDS(normalized_outlier_discarded_counts_annot_matrix,
+               labels=colnames(normalized_outlier_discarded_counts_annot_matrix),
+        col=c("red", "blue")[factor(cell_type[outlier_col])], cex=0.7)
+```
+
+Biological coefficient of variation plot and mean-variation plot.
+
+```{r Plot dispersion}
+no_outlier_samples <- colnames(normalized_outlier_discarded_counts_annot_matrix)
+no_outlier_cell_type <- cell_type[outlier_col]
+model_design <- model.matrix(~no_outlier_cell_type
+                             + no_outlier_cell_type+0)
+dge <- edgeR::DGEList(counts=normalized_outlier_discarded_counts_annot_matrix, group=factor(no_outlier_cell_type))
+dge <- edgeR::calcNormFactors(dge)
+dge <- edgeR::estimateDisp(dge, model_design)
+edgeR::plotBCV(dge, col.tagwise="black", col.common="red", ylab="BCV", main="Biological coefficient of variation of after normalization")
+edgeR::plotMeanVar(dge, show.raw.vars = TRUE, show.tagwise.vars=TRUE, NBline=TRUE, show.ave.raw.vars=TRUE, show.binned.common.disp.vars=TRUE, main="Mean-variance relation after normalization")
 ```
 
 # Interpretation
 
-Control condition is healthy and test condition is JMML. This dataset is interesting for me because we can compare RNA expression between among JMML patients, healthy prenatal sample, healthy postnatal sample. There were expression values that were not unique for specific genes. I discarded these genes in the final data analysis. There were expression values that could not be mapped to current HUGO symbols. I discarded these genes because it is too difficult to search.
+## What are the control and test conditions of the dataset?
+
+Control condition is healthy and test condition is Juvenile Myelomonocytic Leukemia(JMML) in this dataset.
+
+## Why is the dataset of interest to you?
+
+This dataset is interesting for me because RNA expressions among JMML patients, healthy prenatal sample, healthy postnatal sample. Scientific researches have been questioning if JMML starts even in prenatal state. This dataset will be really helpful to understand JMML with RNAseq in different states.
+
+## Were there expression values that were not unique for specific genes? How did you handle these?
+
+There were no expression values that were not unique for specific genes.
+
+## Were there expression values that could not be mapped to current HUGO symbols?
+
+There were expression values of 26043 genes that could not be mapped to current HUGO symbols.  I discarded these genes because these gene symbols were not convertible to HUGO symbols.
+
+## How many outliers were removed?
+
+One outlier was removed from the dataset. By looking LMMJ-10-CMP manually, found that the variation outlied too much.
+
+## How did you handle replicates?
+
+There was no replicate in the dataset. Each sample was from different subjects and cell types.
+
+## What is the final coverage of your dataset?
+
+The final coverage of my dataset was 118 samples and 18336 genes.
+
+## Reference
+
+Cavé H, Strullu M, Caye A, Arfeuille C. https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE198919. APHP Hôpital Robert Debré. 2022.
