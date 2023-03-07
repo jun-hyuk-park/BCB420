@@ -56,7 +56,8 @@ Raw RNA counts were saved in compressed file. Uncompress the file.
 
 ```{r Unzip RNA raw counts file and read the file}
 if(!file.exists(sub(".gz", "", fnames[4]))) {
-  GEOquery::gunzip(fnames[4], remove=FALSE)
+  gunzip(fnames[4], remove=FALSE)
+  # GEOquery::gunzip(fnames[4], remove=FALSE)
 }
 
 raw_counts <- read.delim(sub(".gz", "", fnames[4]), header=TRUE, check.names=FALSE)
