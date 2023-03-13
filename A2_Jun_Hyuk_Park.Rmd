@@ -3,50 +3,66 @@ html_document:
   toc: yes
   toc_depth: 3
 author: "Jun Hyuk Park"
-date: "2023-03-09"
+date: "2023-03-14"
 output:
-  pdf_document:
-    latex_engine: xelatex
   html_document: default
 always_allow_html: true
 title: 'A2_Jun_Hyuk_Park: Differential Gene expression and Preliminary ORA'
 ---
 
+# Introduction
+
+In assignment 1, I have cleaned the dataset and applied normalization on the bulk RNAseq dataset of juvenile myelomonocytic leukemia. I downloaded this dataset from GEO with id GSE198919. After filteration and normalization, 118 samples and 18608 genes will be analysed.
+
+First, download require packages for this assignment.
+
 ```{r Download required packages}
-if(!requireNamespace("knitr", quietly=TRUE)) {
- install.packages("knitr")
+required_packages <- c("knitr", "edgeR", "ComplexHeatmap",
+                       "circlize", "Biobase", "grid", "gprofiler2",
+                       "magick")
+for(package in required_packages) {
+  if(!requireNamespace(package, quietly=TRUE)) {
+    install.pacakges(package)
+  }
 }
-if(!requireNamespace("edgeR", quietly=TRUE)) {
-  install.packages("edgeR")
-}
-if(!requireNamespace("BiocManager", quietly=TRUE)) {
-  install.packages("BiocManager")
-}
-if(!requireNamespace("R.utils", quietly=TRUE)) {
-  install.packages("R.utils")
-}
-if(!requireNamespace("GEOmetadb", quietly=TRUE)) {
-  BiocManager::install("GEOmetadb")
-}
-if(!requireNamespace("biomaRt", quietly=TRUE)) {
-  BiocManager::install("biomaRt")
-}
-if(!requireNamespace("ComplexHeatmap", quietly=TRUE)) {
-  install.pacakges("ComplexHeatmap")
-}
-if(!requireNamespace("circlize", quietly=TRUE)) {
-  install.pacakges("circlize")
-}
-if(!requireNamespace("Biobase", quietly=TRUE)) {
-  install.packages("Biobase")
-}
-if(!requireNamespace("grid", quietly=TRUE)) {
-  install.packages("grid")
-}
-if(!requireNamespace("gprofiler2", quietly=TRUE)) {
-  install.packages("gprofiler2")
-}
+#if(!requireNamespace("knitr", quietly=TRUE)) {
+# install.packages("knitr")
+#}
+#if(!requireNamespace("edgeR", quietly=TRUE)) {
+#  install.packages("edgeR")
+#}
+#if(!requireNamespace("BiocManager", quietly=TRUE)) {
+#  install.packages("BiocManager")
+#}
+#if(!requireNamespace("R.utils", quietly=TRUE)) {
+#  install.packages("R.utils")
+# }
+#if(!requireNamespace("GEOmetadb", quietly=TRUE)) {
+#  BiocManager::install("GEOmetadb")
+#}
+#if(!requireNamespace("biomaRt", quietly=TRUE)) {
+#  BiocManager::install("biomaRt")
+#}
+#if(!requireNamespace("ComplexHeatmap", quietly=TRUE)) {
+#  install.pacakges("ComplexHeatmap")
+#}
+#if(!requireNamespace("circlize", quietly=TRUE)) {
+#  install.pacakges("circlize")
+#}
+#if(!requireNamespace("Biobase", quietly=TRUE)) {
+#  install.packages("Biobase")
+#}
+#if(!requireNamespace("grid", quietly=TRUE)) {
+#  install.packages("grid")
+#}
+#if(!requireNamespace("gprofiler2", quietly=TRUE)) {
+#  install.packages("gprofiler2")
+#}
+#if(!requireNamespace("magick", quietly=TRUE)) {
+#  install.packages("magick")
+#}
 ```
+
 # Differential Gene Expression
 ```{r read normalized expression data from A1}
 # Normalized expression data from A1 is saved as
@@ -62,7 +78,7 @@ normalized_expression_data <- read.table(file=file.path(getwd(),
 knitr::kable(normalized_expression_data[1:5, 1:5])
 ```
 
-```{r Create a heatmap, out.height="120%", fig.cap="Normalized expression data Heatmap"}
+```{r Create a heatmap, out.height="150%", fig.align="center", dpi=200, fig.cap="Normalized expression data Heatmap"}
 heatmap_matrix <- normalized_expression_data[,]
 rownames(heatmap_matrix) <- rownames(normalized_expression_data)
 colnames(heatmap_matrix) <- colnames(normalized_expression_data)
@@ -79,7 +95,9 @@ current_heatmap <- ComplexHeatmap::Heatmap(as.matrix(heatmap_matrix[,]),
                                            show_heatmap_legend = TRUE,
                                            column_names_gp = grid::gpar(
                                              fontsize=2.5),
-                                           column_names_rot = 45)
+                                           column_names_rot = 45,
+                                           use_raster=FALSE
+                                           )
 current_heatmap
 ```
 ```{r Plot with colors in MDS labeled as samples}
@@ -207,7 +225,7 @@ col <- c("red")
 limma::plotMA(log2(normalized_expression_data[,]), status=status, values=values, col=col, cex=0.4)
 ```
 
-```{r}
+```{r Create an annotated heatmap, out.height="150%", fig.align="center", dpi=200, fig.cap="Annotated heatmap"}
 top_hits <- output_hits$x[output_hits$P.Value<0.05]
 
 
@@ -247,8 +265,9 @@ show_column_names = TRUE,
 show_row_names = FALSE,
 show_heatmap_legend = TRUE,
 top_annotation=ha,
-column_names_gp = grid::gpar(fontsize=2.5),
-column_names_rot = 45
+column_names_gp = grid::gpar(fontsize=2.4),
+column_names_rot = 45,
+use_raster=FALSE
 )
 current_heatmap
 ```
@@ -332,3 +351,16 @@ Overview of lowest p-value query result in gene set enrichment analysis on downr
 head(downregulated_gost_result$result[order(downregulated_gost_result$result$p_value),])
 ```
 
+# Interpretation
+
+**1. Do the over-representation results support conclusions or mechanism discussed in the original paper?**
+
+The over-representation results support the original paper.
+
+**2. Can you find evidence, i.e. publications, to support some of the results that you see. How does this evidence support your results.**
+
+Yes, there are some evidences that support some of the results that I see. Ras gene family are know to be oncogenes of JMML. <sup>[1]</sup> Its subfamilies such as HRAS, KRAS, NRAS were found in the gene list of differentially expressed genes.
+
+# Reference
+
+[1] Bos JL. ras oncogenes in human cancer: a review. Cancer Res. 1989 Sep 1;49(17):4682-9. Erratum in: Cancer Res 1990 Feb 15;50(4):1352.
