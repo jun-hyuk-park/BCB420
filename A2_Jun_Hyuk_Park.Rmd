@@ -1,0 +1,334 @@
+---
+html_document:
+  toc: yes
+  toc_depth: 3
+author: "Jun Hyuk Park"
+date: "2023-03-09"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document: default
+always_allow_html: true
+title: 'A2_Jun_Hyuk_Park: Differential Gene expression and Preliminary ORA'
+---
+
+```{r Download required packages}
+if(!requireNamespace("knitr", quietly=TRUE)) {
+ install.packages("knitr")
+}
+if(!requireNamespace("edgeR", quietly=TRUE)) {
+  install.packages("edgeR")
+}
+if(!requireNamespace("BiocManager", quietly=TRUE)) {
+  install.packages("BiocManager")
+}
+if(!requireNamespace("R.utils", quietly=TRUE)) {
+  install.packages("R.utils")
+}
+if(!requireNamespace("GEOmetadb", quietly=TRUE)) {
+  BiocManager::install("GEOmetadb")
+}
+if(!requireNamespace("biomaRt", quietly=TRUE)) {
+  BiocManager::install("biomaRt")
+}
+if(!requireNamespace("ComplexHeatmap", quietly=TRUE)) {
+  install.pacakges("ComplexHeatmap")
+}
+if(!requireNamespace("circlize", quietly=TRUE)) {
+  install.pacakges("circlize")
+}
+if(!requireNamespace("Biobase", quietly=TRUE)) {
+  install.packages("Biobase")
+}
+if(!requireNamespace("grid", quietly=TRUE)) {
+  install.packages("grid")
+}
+if(!requireNamespace("gprofiler2", quietly=TRUE)) {
+  install.packages("gprofiler2")
+}
+```
+# Differential Gene Expression
+```{r read normalized expression data from A1}
+# Normalized expression data from A1 is saved as
+# Assignments/Assignments2/normalized_a1_expression_data.tsv"
+normalized_expression_data <- read.table(file=file.path(getwd(),
+                              "Assignments", "Assignment2",                                                "normalized_a1_expression_data.tsv"),
+                              header=TRUE, sep="\t", stringsAsFactors=FALSE,
+                              check.names=FALSE)
+```
+
+```{r Overview of normalized expression data}
+# Use knitr::kable to show normalized expression data
+knitr::kable(normalized_expression_data[1:5, 1:5])
+```
+
+```{r Create a heatmap, out.height="120%", fig.cap="Normalized expression data Heatmap"}
+heatmap_matrix <- normalized_expression_data[,]
+rownames(heatmap_matrix) <- rownames(normalized_expression_data)
+colnames(heatmap_matrix) <- colnames(normalized_expression_data)
+heatmap_matrix <- t(scale(t(heatmap_matrix)))
+
+heatmap_col = circlize::colorRamp2(c(min(heatmap_matrix), 0,
+max(heatmap_matrix)), c("blue", "white", "red"))
+current_heatmap <- ComplexHeatmap::Heatmap(as.matrix(heatmap_matrix[,]),
+                                           show_row_dend = TRUE,
+                                           show_column_dend = TRUE,
+                                           col=heatmap_col,
+                                           show_column_names = TRUE,
+                                           show_row_names = FALSE,
+                                           show_heatmap_legend = TRUE,
+                                           column_names_gp = grid::gpar(
+                                             fontsize=2.5),
+                                           column_names_rot = 45)
+current_heatmap
+```
+```{r Plot with colors in MDS labeled as samples}
+pat_colors <- c()
+for(i in 1:ncol(heatmap_matrix)) {
+  if(grepl("LMMJ", colnames(heatmap_matrix)[i])) {
+    pat_colors[i] <- "red"
+  } else {
+    pat_colors[i] <- "black"
+  }
+}
+
+limma::plotMDS(heatmap_matrix, col=pat_colors, cex=0.7)
+```
+
+```{r Plot with colors in MDS}
+pat_labels <- c()
+for(i in 1:ncol(heatmap_matrix)) {
+  if(grepl("LMMJ", colnames(heatmap_matrix)[i])) {
+    pat_labels[i] <- "L"
+  } else {
+    pat_labels[i] <- "C"
+  }
+}
+
+limma::plotMDS(heatmap_matrix, col=pat_colors, labels=pat_labels)
+```
+```{r Samples labeling}
+samples <- data.frame(
+  lapply(colnames(normalized_expression_data), FUN=function(x) {
+    temp <- unlist(strsplit(x, split="\\."))
+    if(grepl("LMMJ", x)) {
+      return(c(paste(tail(temp, n=2)[1], tail(temp, n=2)[2], sep=" "), "JMML"))
+    } else {
+      return(c(paste(tail(temp, n=2)[1], tail(temp, n=2)[2], sep=" "), "Control"))
+    }
+  }
+))
+colnames(samples) <- colnames(normalized_expression_data)
+rownames(samples) <- c("patients", "cell_type")
+samples <- data.frame(t(samples))
+head(samples, n=10)
+```
+```{r Model design}
+model_design <- model.matrix(~samples$cell_type)
+knitr::kable(model_design[1:5,], type="html")
+```
+```{r Fit the model to the expression data}
+expression_matrix <- as.matrix(normalized_expression_data)
+rownames(expression_matrix) <- rownames(normalized_expression_data)
+colnames(expression_matrix) <- colnames(normalized_expression_data)
+
+minimalSet <- Biobase::ExpressionSet(assayData=expression_matrix)
+
+fit <- limma::lmFit(minimalSet, model_design)
+```
+
+```{r Calculate top hits}
+fit2 <- limma::eBayes(fit, trend=TRUE)
+
+BH_topfit <- limma::topTable(fit2,
+                   coef=ncol(model_design),
+                   adjust.method="BH",
+                   number=nrow(expression_matrix))
+
+output_hits <- merge(rownames(normalized_expression_data),
+                     BH_topfit,
+                     by.y=0, by.x=1,
+                     all.y=TRUE)
+
+output_hits <- output_hits[order(output_hits$P.Value),]
+head(output_hits, n=10)
+```
+5241 genes were signficiantly differentially expressed. I used 0.05 as threshold because 0.05 is strong threshold enough to conclude that gene is expressed differentially in most of experiments and cases.
+```{r Get the number of genes that is significantly differentiated}
+length(which(output_hits$P.Value < 0.05))
+```
+
+```{r Test in various hypothesis correction methods}
+holm_topfit <- limma::topTable(fit2,
+                   coef=ncol(model_design),
+                   adjust.method="holm",
+                   number=nrow(expression_matrix))
+hochberg_topfit <- limma::topTable(fit2,
+                   coef=ncol(model_design),
+                   adjust.method="hochberg",
+                   number=nrow(expression_matrix))
+hommel_topfit <- limma::topTable(fit2,
+                   coef=ncol(model_design),
+                   adjust.method="hommel",
+                   number=nrow(expression_matrix))
+bonferroni_topfit <- limma::topTable(fit2,
+                   coef=ncol(model_design),
+                   adjust.method="bonferroni",
+                   number=nrow(expression_matrix))
+BY_topfit <- limma::topTable(fit2,
+                   coef=ncol(model_design),
+                   adjust.method="BY",
+                   number=nrow(expression_matrix))
+fdr_topfit <- limma::topTable(fit2,
+                   coef=ncol(model_design),
+                   adjust.method="fdr",
+                   number=nrow(expression_matrix))
+print("Number of genes passed correction by hypothesis correction method")
+sprintf("BH hypothesis correction: %s", length(which(BH_topfit$adj.P.Val < 0.05)))
+sprintf("holm hypothesis correction: %s", length(which(holm_topfit$adj.P.Val < 0.05)))
+sprintf("hochberg hypothesis correction: %s", length(which(hochberg_topfit$adj.P.Val < 0.05)))
+sprintf("hommel hypothesis correction: %s", length(which(hommel_topfit$adj.P.Val < 0.05)))
+sprintf("bonferroni hypothesis correction: %s", length(which(bonferroni_topfit$adj.P.Val < 0.05)))
+sprintf("BY hypothesis correction: %s", length(which(BY_topfit$adj.P.Val < 0.05)))
+sprintf("fdr hypothesis correction: %s", length(which(fdr_topfit$adj.P.Val < 0.05)))
+```
+
+Visualize your top hits using a heatmap. Do you conditions cluster together? Explain why or why not.
+
+```{r MA plot where gene of interests coloured}
+plot_ma_col <- rep("black", nrow(normalized_expression_data))
+for(i in which(BH_topfit$adj.P.Val < 0.05)) {
+  plot_ma_col[i] <- "red"
+}
+status <- rep(".", nrow(normalized_expression_data))
+status[which(BH_topfit$adj.P.Val < 0.05)] <- "Gene of interests"
+values <- c("Gene of interests")
+col <- c("red")
+limma::plotMA(log2(normalized_expression_data[,]), status=status, values=values, col=col, cex=0.4)
+```
+
+```{r}
+top_hits <- output_hits$x[output_hits$P.Value<0.05]
+
+
+heatmap_matrix_tophits <- t(
+scale(t(heatmap_matrix[which(rownames(heatmap_matrix) %in% top_hits),])))
+
+heatmap_matrix_tophits <- heatmap_matrix_tophits[,
+  c(grep(colnames(heatmap_matrix_tophits),
+  pattern = "LMMJ"),
+  which(!grepl(colnames(heatmap_matrix_tophits),
+  pattern = "LMMJ")))]
+
+heatmap_col <- circlize::colorRamp2(c(min(heatmap_matrix_tophits), 0,
+max(heatmap_matrix_tophits)), c("blue", "white", "red"))
+
+class_definitions <- c()
+for(i in 1:ncol(heatmap_matrix_tophits)) {
+  if(grepl("LMMJ", colnames(heatmap_matrix_tophits)[i])) {
+    class_definitions[i] <- "JMML"
+  } else {
+    class_definitions[i] <- "Control"
+  }
+} 
+ha_colours <- c("orange", "green")
+names(ha_colours) <- c("JMML", "Control")
+ha <- ComplexHeatmap::HeatmapAnnotation(df=data.frame(
+type = class_definitions),
+col = list(type = ha_colours))
+
+current_heatmap <- ComplexHeatmap::Heatmap(as.matrix(heatmap_matrix_tophits),
+cluster_rows = TRUE,
+cluster_columns = FALSE,
+show_row_dend = TRUE,
+show_column_dend = FALSE,
+col=heatmap_col,
+show_column_names = TRUE,
+show_row_names = FALSE,
+show_heatmap_legend = TRUE,
+top_annotation=ha,
+column_names_gp = grid::gpar(fontsize=2.5),
+column_names_rot = 45
+)
+current_heatmap
+```
+
+
+# Thresholded over-representation analysis
+
+I used glmQLFit method to see which genes are upregulated or downregulated.
+
+```{r}
+d <- edgeR::DGEList(counts=normalized_expression_data,group=samples$cell_type)
+d <- edgeR::estimateDisp(d, model_design)
+fit <- edgeR::glmQLFit(d, model_design)
+qlf.pos_vs_neg <- edgeR::glmQLFTest(fit, coef="samples$cell_typeJMML")
+```
+
+5997 genes passed the threshold p-value < 0.05 and 3490 genes passed the hypothesis correction with p-value < 0.05.
+```{r}
+qlf_output_hits <- edgeR::topTags(qlf.pos_vs_neg, sort.by="PValue",
+                                  n=nrow(normalized_expression_data))
+length(which(qlf_output_hits$table$PValue < 0.05))
+length(which(qlf_output_hits$table$FDR < 0.05))
+```
+
+Here is the overview of differential expression test using glmQLFit method.
+
+```{r}
+head(qlf.pos_vs_neg$table, n=10)
+```
+
+```{r}
+sources <- c("GO:BP", "GO:MF", "GO:CC")
+whole_genes <- rownames(qlf_output_hits$table)[
+    which(qlf_output_hits$table$PValue < 0.05 
+             & qlf_output_hits$table$logFC > 0)]
+whole_gene_gostres <- gprofiler2::gost(
+  query=whole_genes, sources=sources)
+gprofiler2::gostplot(whole_gene_gostres, capped=FALSE, interactive=TRUE)
+```
+
+1043 gene sets were returned with threshold p-value 0.05.
+
+```{r}
+nrow(whole_gene_gostres$result)
+```
+
+Differentiate between upregulated genes and downregulated genes.
+
+```{r Differentiate between upregulated and downregulated genes}
+upregulated_genes <- rownames(qlf_output_hits$table)[
+  which(qlf_output_hits$table$PValue < 0.05 
+             & qlf_output_hits$table$logFC > 0)]
+downregulated_genes <- rownames(qlf_output_hits)[
+  which(qlf_output_hits$table$PValue < 0.05 
+             & qlf_output_hits$table$logFC < 0)]
+```
+
+Thresholded gene set enrichment analysis on upregulated genes.
+
+```{r Run gProfiler gost on the upregualted genes}
+upregulated_gost_result <- gprofiler2::gost(query=upregulated_genes, organism="hsapiens", sources=sources)
+(upregulated_gost_result_plot <- gprofiler2::gostplot(upregulated_gost_result, capped = FALSE, interactive=TRUE))
+```
+
+Overview of lowest p-value query result in gene set enrichment analysis on upregulated genes.
+
+```{r Head of upregulated gost result}
+head(upregulated_gost_result$result[order(upregulated_gost_result$result$p_value),])
+```
+
+Thresholded gene set enrichment analysis on downregulated genes.
+
+```{r gprofiler gost quey on downregulated genes}
+downregulated_gost_result <- gprofiler2::gost(query=downregulated_genes, organism="hsapiens", sources=sources)
+(downregulated_plot <- gprofiler2::gostplot(downregulated_gost_result, capped = FALSE, interactive=TRUE))
+```
+
+Overview of lowest p-value query result in gene set enrichment analysis on downregulated genes.
+
+```{r}
+head(downregulated_gost_result$result[order(downregulated_gost_result$result$p_value),])
+```
+
