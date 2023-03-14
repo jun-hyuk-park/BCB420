@@ -44,9 +44,11 @@ normalized_expression_data <- read.table(file=file.path(getwd(),
 
 See the overview of the normalized expression data.
 
-```{r Overview of normalized expression data, fig.cap="Table 1. Overview of normalized expression data", fig.align="center"}
+```{r Overview of normalized expression data, fig.align="center"}
 # Use knitr::kable to show normalized expression data
-knitr::kable(normalized_expression_data[1:10, 1:5])
+knitr::kable(normalized_expression_data[1:10, 1:5],
+             caption="Table 1. Overview of normalized expression data",
+             format="html")
 ```
 
 Create a MDS plot of normalized expression data, differentiating between JMML samples(red) and control samples(black).
@@ -69,6 +71,7 @@ limma::plotMDS(normalized_expression_data,
 ```
 
 ```{r Plot with colors in MDS labeled as single letter, fig.cap="Figure 2. MDS plot of normalization data with single letter. Better view of clustered JMML and control samples.", fig.align='center'}
+# If sample is JMML, assign L, if it is control, assing C.
 pat_labels <- c()
 for(i in 1:ncol(normalized_expression_data)) {
   if(grepl("LMMJ", colnames(normalized_expression_data)[i])) {
@@ -83,7 +86,7 @@ limma::plotMDS(normalized_expression_data, col=pat_colors, labels=pat_labels)
 
 Define the samples groups. In French, JMML is leucémie myélomonocytaire juvénile(LMMJ). Therefore, the samples that are labeled as LMMJ are JMML samples.
 
-```{r Samples labeling, fig.cap="Table 2. Grouping of samples by their types(JMML, Control). Each sample was assigned to one of the groups.", fig.align='center'}
+```{r Samples labeling, fig.align='center'}
 # Create a data frame of groups of each sample.
 samples <- data.frame(
   lapply(colnames(normalized_expression_data), FUN=function(x) {
@@ -96,48 +99,55 @@ samples <- data.frame(
   }
 ))
 colnames(samples) <- colnames(normalized_expression_data)
-rownames(samples) <- c("patients", "cell_type")
+rownames(samples) <- c("cell", "cell_type")
 samples <- data.frame(t(samples))
 # Overview of the group.
-head(samples, n=10)
+knitr::kable(head(samples, n=10,
+                  caption="Table 2. Grouping of samples by \
+                  their types(JMML, Control). Each sample was \
+                  assigned to one of the groups."), format="html")
 ```
 
 Design a model with grouping in samples.
 
-```{r Model design, fig.cap="Table 3. Overview of model design", fig.align='center'}
+```{r Model design, fig.align='center'}
 model_design <- model.matrix(~samples$cell_type)
-knitr::kable(model_design[1:5,], type="html")
+knitr::kable(model_design[1:5,],
+             caption="Table 3. Overview of model design",
+             type="html")
 ```
 
 Fit the model into the normalized expression data.
 
 ```{r Fit the model to the expression data}
+# Create a matrix of normalized expression data.
 expression_matrix <- as.matrix(normalized_expression_data)
 rownames(expression_matrix) <- rownames(normalized_expression_data)
 colnames(expression_matrix) <- colnames(normalized_expression_data)
 
+# Create an expression set.
 minimalSet <- Biobase::ExpressionSet(assayData=expression_matrix)
 
+# Fit our model into the expression set.
 fit <- limma::lmFit(minimalSet, model_design)
 ```
 
 Conduct hypothesis testing on the fitted model. Use BH hypothesis correcting method.
 
-```{r Calculate top hits, fig.cap="Table 4. Overview of gene expression hypothesis testing.", fig.align='center'}
+```{r Calculate top hits, fig.align='center'}
+# Fit using eBayes method.
 fit2 <- limma::eBayes(fit, trend=TRUE)
 
+# Topfit
 BH_topfit <- limma::topTable(fit2,
                    coef=ncol(model_design),
                    adjust.method="BH",
                    number=nrow(expression_matrix))
-
-output_hits <- merge(rownames(normalized_expression_data),
-                     BH_topfit,
-                     by.y=0, by.x=1,
-                     all.y=TRUE)
-
+output_hits <- BH_topfit
 output_hits <- output_hits[order(output_hits$P.Value),]
-head(output_hits, n=10)
+knitr::kable(head(output_hits, n=10),
+             caption="Table 4. Overview of gene expression \
+             hypothesis testing.")
 ```
 
 5241 genes were signficiantly differentially expressed. I used 0.05 as threshold because 0.05 is strong threshold enough to conclude that gene is expressed differentially in most of experiments and cases.
@@ -149,6 +159,8 @@ length(which(output_hits$P.Value < 0.05))
 Use various hypothesis correction methods such as holm, hochberg, hommel, bonferroni, BY and fdr. Number of genes passed correction by hypothesis correction method are,
 
 ```{r Test in various hypothesis correction methods}
+# Use varous hypothesis correction methods such as
+# holm, hochberg, hommel, bonferroni, BY and fdr.
 holm_topfit <- limma::topTable(fit2,
                    coef=ncol(model_design),
                    adjust.method="holm",
@@ -185,6 +197,7 @@ sprintf("fdr hypothesis correction: %s", length(which(fdr_topfit$adj.P.Val < 0.0
 
 
 ```{r MA plot where gene of interests coloured, fig.cap="Figure 3. MA plot of normalized expression data. The genes of interests are coloured in red", fig.align="center"}
+# Color the genes that are differentially expressed.
 plot_ma_col <- rep("black", nrow(normalized_expression_data))
 for(i in which(BH_topfit$adj.P.Val < 0.05)) {
   plot_ma_col[i] <- "red"
@@ -193,6 +206,8 @@ status <- rep("Control", nrow(normalized_expression_data))
 status[which(BH_topfit$adj.P.Val < 0.05)] <- "Gene of interests"
 values <- c("Gene of interests")
 col <- c("red")
+
+# Plot MA plot.
 limma::plotMA(log2(normalized_expression_data[,]), status=status, values=values, col=col, cex=0.35, main="MA plot of normalized expression data", ylab="Expression log-ratio by samples")
 ```
 
@@ -231,11 +246,14 @@ current_heatmap <- ComplexHeatmap::Heatmap(as.matrix(heatmap_matrix[,]),
 ComplexHeatmap::draw(current_heatmap, heatmap_legend_side="bottom")
 ```
 
-Annotate the heatmap with division into JMML and control samples. Also, cluster the gene rows into lower and higher expressions. Visualize the top hits.
+Annotate the heatmap with division into JMML and control samples. Visualize the top hits.
 
-```{r Create an annotated heatmap, out.height="150%", fig.align="center", dpi=200, fig.cap="Figure 5. Annotated and clustered heatmap. Can see more distinct constrat between JMML samples and control samples."}
-top_hits <- output_hits$x[output_hits$P.Value<0.05]
+```{r Create an annotated heatmap, out.height="150%", fig.align="center", dpi=200, fig.cap="Figure 5. Annotated and clustered heatmap. Can see more distinct contrast between JMML samples and control samples."}
 
+# Find top hits with P-value < 0.05.
+top_hits <- rownames(output_hits)[output_hits$P.Value<0.05]
+
+# Filter with the genes of interests and scale it.
 heatmap_matrix_tophits <- t(
 scale(t(heatmap_matrix[which(rownames(heatmap_matrix) %in% top_hits),])))
 
@@ -256,12 +274,15 @@ for(i in 1:ncol(heatmap_matrix_tophits)) {
     class_definitions[i] <- "Control"
   }
 } 
+
+# Create an annotation of the heatmap.
 ha_colours <- c("orange", "green")
 names(ha_colours) <- c("JMML", "Control")
 ha <- ComplexHeatmap::HeatmapAnnotation(df=data.frame(
   type = class_definitions),
   col = list(type = ha_colours))
 
+# Create a heatmap.
 current_heatmap <- ComplexHeatmap::Heatmap(as.matrix(heatmap_matrix_tophits),
   name="Heatmap of normalized dataset",
   cluster_rows = TRUE,
@@ -288,9 +309,12 @@ ComplexHeatmap::draw(current_heatmap, heatmap_legend_side="bottom",
 I used glmQLFit method to see which genes are upregulated or downregulated.
 
 ```{r glmQLFit to identify upregulated and downregulated genes}
+# Gene expression anaylsis
 d <- edgeR::DGEList(counts=normalized_expression_data,group=samples$cell_type)
 d <- edgeR::estimateDisp(d, model_design)
 fit <- edgeR::glmQLFit(d, model_design)
+
+# Conduct glmQLFTest on the dataset using model design.
 qlf.pos_vs_neg <- edgeR::glmQLFTest(fit, coef="samples$cell_typeJMML")
 ```
 
@@ -310,8 +334,12 @@ length(which(qlf_output_hits$table$FDR < 0.05))
 
 Here is the overview of differential expression test using glmQLFit method.
 
-```{r Overview of differential expression, fig.cap="Table 5. Overview of differential expression test result. The test has shown some genes were significantly expressed differentially"}
-head(qlf.pos_vs_neg$table, n=10)
+```{r Overview of differential expression}
+knitr::kable(head(qlf.pos_vs_neg$table, n=10),
+             catpion="Table 5. Overview of differential \
+             expression test result. The test has shown \
+             some genes were significantly expressed differentially",
+             format="html")
 ```
 
 In this over representation analysis, I will use gene ontology biological process, molecular function and cellular component dataset.
@@ -324,6 +352,7 @@ gprofiler2::get_version_info(organism = "hsapiens")$sources[sources]
 Get the list of the genes that were upregulated and the p-value of differential gene expression is < 0.05. On this gene list, conduct over representation analysis using gost method from gprofiler2 R package. Plot the result of the anaylsis.
 
 ```{r "Differentially expressed genes, over representation analysis, plot", fig.cap="Figure 6. Over representation analysis result by gprofiler. Various related annotationa data were found.", fig.align="center"}
+# Conduct a gprofiler query on the gene list.
 whole_genes <- rownames(qlf_output_hits$table)[
     which(qlf_output_hits$table$PValue < 0.05 
              & qlf_output_hits$table$logFC > 0)]
@@ -341,6 +370,7 @@ nrow(whole_gene_gost_result$result)
 Differentiate between upregulated genes and downregulated genes.
 
 ```{r Differentiate between upregulated and downregulated genes}
+# Differentiate between upregulated and downregulated genes
 upregulated_genes <- rownames(qlf_output_hits$table)[
   which(qlf_output_hits$table$PValue < 0.05 
              & qlf_output_hits$table$logFC > 0)]
@@ -371,8 +401,12 @@ upregulated_gost_result <- gprofiler2::gost(query=upregulated_genes, organism="h
 
 Overview of lowest p-value query result in gene set enrichment analysis on upregulated genes.
 
-```{r Head of upregulated gost result, fig.cap="Table 6. Top 5 annotation terms found in the over reprepresentation analysis on upregualted genes."}
-head(upregulated_gost_result$result[order(upregulated_gost_result$result$p_value),], n=5)
+```{r Head of upregulated gost result}
+knitr::kable(head(upregulated_gost_result$result[
+  order(upregulated_gost_result$result$p_value),], n=5),
+  caption="Table 6. Top 5 annotation terms found in the over \
+  reprepresentation analysis on upregualted genes.",
+  format="html")
 ```
 
 Thresholded gene set enrichment analysis on downregulated genes.
@@ -384,8 +418,11 @@ downregulated_gost_result <- gprofiler2::gost(query=downregulated_genes, organis
 
 Overview of lowest p-value query result in gene set enrichment analysis on downregulated genes.
 
-```{r Overview of lowest p-value query result, fig.cap="Table 7. Top 5 annotation terms found in the over representation analysis on down regualted genes", fig.align="center"}
-head(downregulated_gost_result$result[order(downregulated_gost_result$result$p_value),], n=5)
+```{r Overview of lowest p-value query result, fig.align="center"}
+knitr::kable(head(downregulated_gost_result$result[
+  order(downregulated_gost_result$result$p_value),], n=5),
+  caption="Table 7. Top 5 annotation terms found in the over \
+  representation analysis on down regualted genes")
 ```
 
 # Interpretation
