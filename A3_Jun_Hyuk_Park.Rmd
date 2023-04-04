@@ -1,0 +1,356 @@
+---
+title: "A3_Jun_Hyuk_Park"
+author: "Jun Hyuk Park"
+date: "2023-04-04"
+output:
+  html_document:
+    toc: true
+  pdf_document: default
+---
+
+In assignment 1, I have cleaned and applied normalization on the bulk RNAseq dataset of juvenile myelomonocytic leukemia(JMML). I downloaded this dataset from GEO with id GSE198919. After filteration and normalization, 118 samples and 18608 genes will be analysed. In assignment 2, I performed thresholded gene set enrichment analysis using go:profiler. In this assignment, I will conduct non-thresholded gene set enrichment analysis(GSEA) using the ranked set of genes from assignment 2. Then, I will visualize my gene set enrichment analysis in cytoscape. Then I will interpret the results in detail.
+
+# Non-thresholded Gene set Enrichment Analysis
+
+First, install the packages required.
+
+```{r install the packages required}
+# BiocManager: Required to install other useful package in bioinformatics.
+# statmod: Required for EnrichmentBrowser::sbea using gsea method.
+required_packages <- c("BiocManager", "statmod")
+for(i in required_packages) {
+  if(!requireNamespace(i)) {
+    install.packages(i)
+  }
+}
+
+# RCy3: Required for utilzing RCy3.
+# EnrichmentBrowser: Required for gsea.
+# npGSEA: Require for gsea by EnrichmetBrowser::sbea.
+bioc_packages <- c("RCy3", "EnrichmentBrowser", "npGSEA")
+for(i in bioc_packages) {
+  if(!requireNamespace(i)) {
+    BiocManager::install(i)
+  }
+}
+```
+
+Load ranked set of genes from Assignment 2. Augment the table ranks into compatible format for gene set enrichment analysis.
+
+```{r Read ranked gene sets and set names to their ranks and gene, warning=FALSE}
+rank_file <- "Assignments/Assignment3/Ranked_genes.tsv"
+ranks <- read.table(rank_file,
+                    header=TRUE,)
+print(paste("Number of genes: ", as.character(nrow(ranks))))
+knitr::kable(head(ranks["rank"], n=5), format="html",
+             caption="Table 1. 5 highest ranked genes. \
+             STAT1, ADGRE5, TCF7, H1FX, H3F3C had the highest ranks")
+knitr::kable(tail(ranks["rank"], n=5), format="html",
+             caption="Table 2. 5 lowest ranked geens. \
+             MTND1P23, IGF2, BGN, OIT3, C8orf4 had the lowest ranks")
+```
+
+I used the current gene sets GO pathways from Bader lab as up to date as 2023-04-02 in gmt file. gmt file format is a table delimited file format that describes gene sets.
+
+```{r Download gmt geneset gmt file from baderlab}
+gmt_url <- "http://download.baderlab.org/EM_Genesets/March_02_2023/Human/symbol/Human_GO_AllPathways_no_GO_iea_March_02_2023_symbol.gmt"
+gmt_file <- file.path(getwd(), "Assignments/Assignment3/Human_GO_AllPathways_no_GO_iea_March_02_2023_symbol.gmt")
+download.file(gmt_url, gmt_file)
+```
+
+There are 27718 annotations in the genesets.
+
+```{r Load gmt file}
+gs <-EnrichmentBrowser::getGenesets(gmt_file)
+print(paste("Total annotation number:", length(gs)))
+```
+
+Here are some examples of genesets in gmt file.
+
+```{r Show first two pathways in the gmt file}
+gs[1:2]
+```
+
+I am going to create SummarizedExperiment object of EnrichmentBrowser package.
+
+To run sbea by EnrichmentBrowser, SummarizedExperiment class object
+is required. To initialize SummarizedExperiment object, assay file,
+row data file and column data file are required.
+
+Assay file includes expression data table without row names and column names.
+
+Row data file includes the table of ranks of genes without row names and column names.
+
+Column data file includes group label of each sample. By convention, 0 means control and 1 means experimental. No row names and column names.
+
+First, save an assay file without column names and row names.
+
+```{r Save assay file}
+# Read expression data file.
+expr_path <- "Assignments/Assignment2/normalized_a1_expression_data.tsv"
+expr <- read.table(expr_path)
+
+# Save expression data without row names and column names.
+sumexpr_filename <- "Assignments/Assignment3/SummarizeExperiment_expression.tsv" 
+write.table(expr, file = sumexpr_filename , col.names=FALSE, row.names=FALSE, sep = "\t", quote=FALSE)
+```
+
+Set new columns of samples, Fold change(FC) and adjusted P value of row data table. Save Rowdata with only gene symbols.
+
+```{r Save Rowdata file}
+rowData <- ranks
+rowData <- cbind(rownames(ranks),rowData)
+colnames(rowData)[2] <- "FC"
+colnames(rowData)[6] <- "ADJ.PVAL"
+
+rdat_path <- "Assignments/Assignment3/rdata.tsv"
+write.table(rowData[, 1], file=rdat_path, col.names=FALSE, row.names=FALSE,
+            sep="\t", quote=FALSE)
+```
+
+Save Coldata with samples column and group(Control, LMMJ) column.
+
+```{r Save Coldata file}
+colData <- data.frame(Sample = colnames(expr),
+                      GROUP = colnames(expr), 
+                      stringsAsFactors = FALSE)
+rownames(colData) <- colnames(expr)
+
+# If LMMJG(Leucémie myélomonocytaire juvénile) is in the sample, it is Juvenile myelomonocytic leukaemia(JMML)(1). If not, it is control group(0).
+colData$GROUP[which(!grepl(colData$GROUP, pattern="LMMJ"))] <- 0
+colData$GROUP[which(grepl(colData$GROUP, pattern="LMMJ"))] <- 1
+
+cdata_file <- "Assignments/Assignment3/cdata.tsv"
+write.table(colData ,  file=cdata_file, col.names  = FALSE, row.names = FALSE, sep = "\t", quote=FALSE)
+```
+
+Create the SummarizedExperiment object.
+
+```{r Create SummarizedExperiment object}
+se_OV <- EnrichmentBrowser::readSE(assay.file=sumexpr_filename, rdat.file=rdat_path, cdat.file=cdata_file)
+
+# To use other columns of rowData later, set row Data of other objects
+SummarizedExperiment::rowData(se_OV) <- rowData
+```
+
+Perform GSEA on expression using EnrichmentBrowser.
+
+```{r Run GSEA on our SummarizedExperiment}
+gsea_result <- EnrichmentBrowser::sbea(method="gsea", se=se_OV, gs=gs, perm=0, alpha=0.05)
+```
+
+See the result of GSEA. 3517 pathways were returned from GSEA.
+
+```{r See the result of GSEA}
+EnrichmentBrowser::gsRanking(gsea_result)
+```
+
+5 lowest p-value gene sets were cellular response to lectin, response to lectin, stimulatory c-type lectin receptor signaling pathway, biocarta_par1_pathway, heme biosynthesis, muscle myosin complex.
+
+```{r 5 lowest p-value gene sets}
+knitr::kable(head(gsea_result$res.tbl$GENE.SET), n=5, format="html")
+```
+
+Compare this GSEA result with thresholded gene set enrichment analysis in assignment 2. From GSEA, 3517 gene sets were returned. In assignment 2, 1043 gene sets were returned. Between these enrichment analysis, 150 gene sets were overlapped with matching GO term id.
+
+```{r Compare gsea result and thresholded analysis from assignment 2}
+gsea_term_id <- c()
+for(i in gsea_result$res.tbl[
+  gsea_result$res.tbl$PVAL < gsea_result$alpha,]$GENE.SET) {
+  gsea_term_id <- c(gsea_term_id, tail(unlist(strsplit(i, "%")), n=1))
+}
+thresholded_analysis_result <- read.table(
+  "Assignments/Assignment2/thresholded_enrichment_analysis.tsv")
+overlap_annotation <- intersect(
+  thresholded_analysis_result$term_id, gsea_term_id)
+print(paste("Number of gene sets returned from GSEA:",
+            length(gsea_term_id)))
+print(paste("Number of gene sets returned from thresholded analysis in assignment 2", nrow(thresholded_analysis_result)))
+print(paste("Number of gene sets overlapped between GSEA and thresholded analysis", length(overlap_annotation)))
+```
+
+See 5 lowest p-value gene sets among overlapped gene sets. They were leukocyte activation, cytokine production, apoptotic signaling pathway, immune response-activating signaling pathway and catabolic process.
+
+```{r Show overlapped go terms, fig.caption="Table 3"}
+knitr::kable(head(thresholded_analysis_result[thresholded_analysis_result$term_id %in% overlap_annotation,], n=5), html="html")
+```
+
+There are some similar pathways given by both GSEA and thresholded analysis in Assignment 2. However, there are also some different pathways given by GSEA and thresholded analysis. This is a straightforward comparison because I compared GSEA result and thresholded analysis result with GO term id which is the same nomenclature for pathways. Therefore, it is reliable to compare these term ids to see which pathways are both found in GSEA and thresholded analysis.
+
+# Visualize your Gene set Enrichment Analysis in Cytoscape
+
+
+Save the result of GSEA result into file.
+
+```{r Save the result of GSEA result into file}
+gsea_result$res.tbl <- cbind(gsea_result$res.tbl,
+                             p.adjust(gsea_result$res.tbl$PVAL, "BH"))
+colnames(gsea_result$res.tbl)[ncol(gsea_result$res.tbl)] <- "Q.VALUE" 
+
+em_results <- data.frame(name=gsea_result$res.tbl$GENE.SET,
+                               descr=gsea_result$res.tbl$GENE.SET, 
+                               pvalue=gsea_result$res.tbl$PVAL,
+                               qvalue=gsea_result$res.tbl$Q.VALUE,
+                               stringsAsFactors = FALSE)
+
+em_results_file <- file.path(getwd(),
+                             "Assignments/Assignment3/GSEA_result.tsv")
+
+write.table(em_results,em_results_file,
+            col.name=TRUE,
+            sep="\t",
+            row.names=FALSE,
+            quote=FALSE)
+```
+
+**To run this part, cytoscape should be running in the background.**
+
+Check if cytoscape is running in background.
+
+```{r Check if cytoscape is running in background}
+running <- tryCatch(RCy3::cytoscapePing(), error=function(cond) {return(FALSE)})
+if(is.null(running)) {
+  running <- TRUE
+}
+tryCatch(RCy3::cytoscapeVersionInfo(), error=function(cond){})
+print(paste("Is cytoscape running:", running))
+```
+
+```{r Cytoscape setup, warning=FALSE}
+#list of app to install
+if(running) {
+  cyto_app_toinstall <- c("clustermaker2", "enrichmentmap", "autoannotate", "Legend Creator")
+  for(i in cyto_app_toinstall) {
+  RCy3::commandsGET(paste("apps install app=", i, sep=""))
+  }
+}
+```
+
+Using RCy3, run enrichment map.
+
+```{r Create enrichment map, message=FALSE}
+if(running) {
+  pvalue <- 0.01
+  qvalue <- 0.01
+  similaritycutoff <- 0.25
+  coef <- "JACCARD"
+  em_command <- paste('enrichmentmap build analysisType= generic ', "gmtFile=",
+                     gmt_file, 'pvalue=', pvalue, 'qvalue=', qvalue,
+                     'similaritycutoff=', similaritycutoff,
+                     'coeffecients=', coef,
+                     'enrichmentsDataset1=', em_results_file,
+                     sep=" ")
+  #enrichment map command will return the suid of newly created network.
+  RCy3::commandsRun(em_command)
+  RCy3::setLayoutProperties("cose", list(idealEdgeLength=300))
+  RCy3::layoutNetwork("cose")
+} else {
+  print("Cytoscape not running. Skip the generation of enrichment map in R.")
+}
+```
+
+All the figures I included here are svg. Readers can zoom in without decreasing quality for detailed view.
+
+```{r Export and show image if cytoscape is running, message=FALSE, warning=FALSE, fig.cap="Figure Enrichment map generated by RCy3."}
+if(running) {
+  em_r_svg_file_name <- "Assignments/Assignment3/em_r.svg"
+  RCy3::exportImage(em_r_svg_file_name, type="svg")
+  print(paste("Number of nodes:", length(RCy3::getAllNodes())))
+  print(paste("Number of edges:", length(RCy3::getAllEdges())))
+  print(paste("Threshold p-value:", pvalue))
+  print(paste("Threshold q-value:", qvalue))
+  knitr::include_graphics(em_r_svg_file_name)
+}
+```
+
+In the case RCy3 cannot run, I included a screenshot of running Cytoscape locally on my machine. In the manual run of Cytoscape and before layout, there were 403 edges and 506 edges. Node p-value cutoff was 0.01 and edge p-value cutoff was 0.25.
+
+```{r Show result of enrichment map creation, out.width="150%", out.height="150%"}
+knitr::include_graphics("Assignments/Assignment3/em_local.svg")
+```
+
+This is the network after applying cose layout.
+```{r Show cose layout applied enrichment map, out.width="150%", out.height="150%"}
+knitr::include_graphics("Assignments/Assignment3/em_local_cose.svg")
+```
+
+
+For annotation, I used clusterBoosted method in autoannotate command of RCy3.
+
+```{r}
+if(running) {
+  nodetable_colnames <- RCy3::getTableColumnNames(table="node")
+  
+  descr_attrib <- nodetable_colnames[grep(nodetable_colnames, pattern = "GS_DESCR")]
+  autoannotate_command <- paste("autoannotate",
+  "annotate-clusterBoosted", "labelColumn=", descr_attrib,
+  "maxWords=4", "minWordOccurrence=4", "adjacentWordBonus=0",
+  "createSingletonClusters=false", sep=" ")
+  RCy3::commandsGET(autoannotate_command)
+  RCy3::layoutNetwork("cose")
+  RCy3::fitContent()
+  annotated_network_file <- "Assignments/Assignment3/em_annotated_r.svg"
+  RCy3::exportImage(annotated_network_file, type="svg")
+  knitr::include_graphics(annotated_network_file)
+}
+```
+```{r message=FALSE, warning=FALSE, fig.cap="Figure Enrichment map generated by RCy3."}
+if(running) {
+  RCy3::commandsGET("autoannotate summary network=current")
+  RCy3::layoutNetwork("cose")
+  svg_summary_file_name <- "Assignments/Assignment3/summary_em_r.svg"
+  RCy3::exportImage(svg_summary_file_name, type="svg")
+  knitr::include_graphics(svg_summary_file_name)
+}
+```
+
+
+
+# Interpretation and detailed view of results
+
+1. Do the enrichment results support conclusions or mechanism discussed in the original paper? How do these results differ from the results you got from Assignment #2 thresholded methods
+
+In the original paper, mechanism is thoroughly discussed but the enrichment result is related to pathobiology of JMML in general. Theses results differ from the results I got from Assignment2. 
+
+2. Can you find evidence, i.e. publications, to support some of the results that you see. How does this evidence support your result?
+
+Heme biosynthesis was one of the significant pathways in the dataset. Heme biosyntehsis is acutally upregulated in most of leukemia cases(Fukuda et al). Therefore, this evidence supports my result.
+
+
+Additional question
+
+Add a post analysis to your main network using specific transcription factors, microRNAs or drugs. Include the reason why you chose the specific miRs, TFs or drugs (i.e publications indicating that they might be related to your model). What does this post analysis show?(I chose this task for additional task in interpretation and detailed view of results)
+
+I chose drugs for post analysis.
+
+For post analysis, I used drug interaction gmt file released on 2023-03-02 by baderlab.
+
+```{r Downlaod gmt file}
+drug_gmt_url <- "https://download.baderlab.org/EM_Genesets/March_02_2023/Human/symbol/DrugTargets/Human_DrugBank_all_symbol.gmt"
+drug_gmt_file <- "Assignments/Assignment3/Human_DrugBank_all_symbol.gmt"
+download.file(drug_gmt_url, drug_gmt_file)
+```
+
+Then I add gene-drug signature set to network manually in Cytoscape. Among all significant drug pathways, I included top 10 drugs. They were ethanol, aripiprazole, loxapine, ziprasidone, quetiapine, glutamic acid, aripirazole lauroxil, clozapine, fludiazepam, olanzapine.
+
+```{r}
+drug_em_file <- "Assignments/Assignment3/em_drug_local.svg"
+knitr::include_graphics(drug_em_file)
+```
+
+# References
+
+## R package reference
+
+1. statmod: Giner G, Smyth GK (2016). statmod: probability calculations for the inverse Gaussian distribution. R Journal, 8(1), 339-351.
+
+2. RCy3: Gustavsen, A. J, Pai, Shraddha, Isserlin, Ruth, Demchak, Barry, Pico, R. A (2019). RCy3: Network Biology using Cytoscape from within R.
+
+3. EnrichmentBrowser: Geistlinger L, Csaba G, Zimmer R (2016). Bioconductor's EnrichmentBrowser: seamless navigation through combined results of set- & network-based enrichment analysis. BMC Bioinformatics, 17, 45.
+
+4. npGSEA: Larson JL, Owen AB (2015). “Moment based gene set tests.” BMC Bioinformatics, 16, 132. doi: 10.1186/s12859-015-0571-7, http://www.biomedcentral.com/1471-2105/16/132.
+
+## Article reference
+
+1. https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE198919
+2. Fukuda Y, Wang Y, Lian S, Lynch J, Nagai S, Fanshawe B, Kandilci A, Janke LJ, Neale G, Fan Y, Sorrentino BP, Roussel MF, Grosveld G, Schuetz JD. Upregulated heme biosynthesis, an exploitable vulnerability in MYCN-driven leukemogenesis. JCI Insight. 2017 Aug 3;2(15):e92409. doi: 10.1172/jci.insight.92409. PMID: 28768907; PMCID: PMC5543914.
